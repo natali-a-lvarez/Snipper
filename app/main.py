@@ -3,6 +3,7 @@ from flask import request, jsonify
 from config import app,db
 from models import Snippet
 
+
 #GET ALL
 @app.route('/snippet', methods={"GET"})
 def get_snippets():
@@ -11,6 +12,8 @@ def get_snippets():
     # converting to json since it is an object
     json_snippets = list(map(lambda x: x.to_json(), snippets))
     return jsonify({"snippets": json_snippets}), 200
+
+
 
 # GET by ID
 @app.route('/snippet/<int:id>', methods=["GET"])
@@ -33,16 +36,7 @@ def create_snippet():
     db.session.commit()
     return jsonify({"message": "Snippet created successfully"})
 
-# GET snippet by query param
-@app.route('/snippet')
-def get_snipped_by_lang():
-    snippets = Snippet.query.all()
-    lang = request.args.get("lang")
 
-    if lang:
-        return list(filter(lambda snippet: snippet['language'] == lang, snippets))
-    
-    return snippets
 
 if __name__ == "__main__":
     with app.app_context():
