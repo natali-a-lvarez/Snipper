@@ -74,13 +74,12 @@ def create_snippet():
 def create_user():
     data = request.json
 
-    # encrypt code 
+    # hash and salf password 
     bytes = data['password'].encode('utf-8')
     salt = bcrypt.gensalt()
     hash = bcrypt.hashpw(bytes, salt)
 
     new_user = User(email=data['email'], password=str(hash))
-    # print({"email": data['email'], "password"})
 
     # adding it to our model
     db.session.add(new_user)
