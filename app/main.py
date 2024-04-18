@@ -33,7 +33,8 @@ def get_snippets():
 
     return jsonify({"snippets": json_snippets}), 200
 
-# GET ALL USERS
+
+# GET ALL USERS(for testing purposes)
 @app.route('/user', methods={"GET"})
 def get_users():
     users = User.query.all()
