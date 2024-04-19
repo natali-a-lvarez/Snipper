@@ -4,8 +4,8 @@ from config import app,db
 from models import Snippet, User
 from cryptography.fernet import Fernet
 from os import environ as env
-from dotenv import find_dotenv, load_dotenv
 import bcrypt
+from dotenv import find_dotenv, load_dotenv
 
 ENV_FILE = find_dotenv()
 if ENV_FILE:
@@ -15,21 +15,18 @@ app.secret_key = env.get("FERNET_KEY")
 
 fern = Fernet(app.secret_key)
 
-def decrypt_code(data):
-    data = data.to_json()
-    token = str(data['code'])
-    data['code'] = fern.decrypt(token)
-    return data
-
+def decryption(snippet):
+    snippet = snippet.to_json()
+    snippet['code'] = fern.decrypt(snippet['code']).decode()
+    return snippet
 
 #GET ALL SNIPPETS
 @app.route('/snippet', methods={"GET"})
 def get_snippets():
     snippets = Snippet.query.all()
 
-    # converting to json since it is an object
-    json_snippets = list(map(lambda x: x.to_json(), snippets))
-    # json_snippets = list(map(decrypt_code, snippets))
+    # converting to json since it is an object and decrypting
+    json_snippets = list(map(decryption, snippets))
 
     return jsonify({"snippets": json_snippets}), 200
 
@@ -54,15 +51,16 @@ def get_snippet(id):
     
     return jsonify(snippet.to_json()), 200 
 
-# Create a recipe
+# Create a snippet
 @app.route('/snippet', methods=['POST'])
 def create_snippet():
     data = request.json
 
     # encrypt code 
-    data['code'] = fern.encrypt(bytes(data['code'], encoding='utf-8')).decode()
+    data['code'] = fern.encrypt(bytes(data['code'], 'utf-8')).decode()
 
     new_snippet = Snippet(language=data['language'], code=data['code'])
+    print(new_snippet)
 
     # adding it to our model
     db.session.add(new_snippet)
