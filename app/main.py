@@ -4,8 +4,9 @@ from config import app,db
 from models import Snippet, User
 from cryptography.fernet import Fernet
 from os import environ as env
-import bcrypt
+import bcrypt, jwt
 from dotenv import find_dotenv, load_dotenv
+
 
 ENV_FILE = find_dotenv()
 if ENV_FILE:
@@ -72,7 +73,7 @@ def create_snippet():
 def create_user():
     data = request.json
 
-    # hash and salf password 
+    # hash and salt password 
     bytes = data['password'].encode('utf-8')
     salt = bcrypt.gensalt()
     hash = bcrypt.hashpw(bytes, salt)
@@ -83,6 +84,24 @@ def create_user():
     db.session.add(new_user)
     db.session.commit()
     return jsonify({"message": "User created successfully"})
+
+# Log in a user
+@app.route('/login', methods=['POST'])
+def login_user():
+    data = request.json
+    users = User.query.all()
+
+    user = list(filter(lambda user: user['email' == data['email']], users))
+    # json_user = user.to_json
+    print(user)
+
+    # validate = bcrypt.checkpw(user.password, data['password'])
+    # return user
+
+    # if user and user['password'] == hash:
+    #     encoded_jwt = jwt.encode(data, env.get('JWT_SECRET'))
+        # return jsonify({'message': encoded_jwt})
+    return jsonify({'user': user })
 
 # DELETE snippet
 @app.route('/snippet/<int:id>', methods={"DELETE"})
