@@ -4,9 +4,10 @@ from config import app,db
 from models import Snippet, User
 from cryptography.fernet import Fernet
 from os import environ as env
-import bcrypt, jwt
+import bcrypt, jwt, datetime
 from dotenv import find_dotenv, load_dotenv
 
+# TODO make GET /user available by token provided to user with POST /login
 
 ENV_FILE = find_dotenv()
 if ENV_FILE:
@@ -16,10 +17,16 @@ app.secret_key = env.get("FERNET_KEY")
 
 fern = Fernet(app.secret_key)
 
+# decrypt a snippet of code
 def decryption(snippet):
     snippet = snippet.to_json()
     snippet['code'] = fern.decrypt(snippet['code']).decode()
     return snippet
+
+# validate a jwt token
+def validate_jwt(token):
+    decoded = jwt.decode(token, env.get("JWT_SECRET"), algorithms=["HS256"])
+    return decoded
 
 #GET ALL SNIPPETS
 @app.route('/snippet', methods={"GET"})
@@ -33,7 +40,7 @@ def get_snippets():
 
 
 # GET ALL USERS(for testing purposes)
-@app.route('/user', methods={"GET"})
+@app.route('/users', methods=["GET"])
 def get_users():
     users = User.query.all()
     
@@ -41,6 +48,21 @@ def get_users():
     json_user = list(map(lambda x: x.to_json(), users))
 
     return jsonify({"users": json_user}), 200
+
+# GET a user with token
+@app.route("/user", methods=["GET"])
+def get_user_with_token():
+   try:
+    # if token is still valid
+    token = request.headers['token']
+    validated_token = validate_jwt(token)
+    return jsonify({"user": validated_token})
+   except jwt.ExpiredSignatureError:
+    # if not valid
+    return jsonify({"message": "Token has expired, please login again."})
+       
+    
+
 
 # GET by ID
 @app.route('/snippet/<int:id>', methods=["GET"])
@@ -78,7 +100,7 @@ def create_user():
     salt = bcrypt.gensalt()
     hash = bcrypt.hashpw(bytes, salt)
 
-    new_user = User(email=data['email'], password=str(hash))
+    new_user = User(email=data['email'], password=hash.decode('utf-8'))
 
     # adding it to our model
     db.session.add(new_user)
@@ -89,19 +111,25 @@ def create_user():
 @app.route('/login', methods=['POST'])
 def login_user():
     data = request.json
-    users = User.query.all()
 
-    user = list(filter(lambda user: user['email' == data['email']], users))
-    # json_user = user.to_json
-    print(user)
+    # Getting the user based on body
+    user = User.query.filter(User.email == data['email']).first()
+    user = user.to_json()
 
-    # validate = bcrypt.checkpw(user.password, data['password'])
-    # return user
+    # Verify password
+    password = data['password'].encode('utf-8')
+    hashed_password = user['password'].encode('utf-8')
+    valid_password = bcrypt.checkpw(password=password, hashed_password=user['password'].encode('utf-8'))
 
-    # if user and user['password'] == hash:
-    #     encoded_jwt = jwt.encode(data, env.get('JWT_SECRET'))
-        # return jsonify({'message': encoded_jwt})
-    return jsonify({'user': user })
+    # Getting JWT token if valid password
+    if valid_password:
+        # setting payload with user and expiration 
+        payload = {"email": user['email'], "password": user['password'], "exp": datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(hours=24)}
+        jwt_token = jwt.encode(payload, env.get("JWT_SECRET"), algorithm="HS256")
+        return jsonify({'token': jwt_token })   
+    else:
+        return jsonify({"message": "User not Authorized!"})
+
 
 # DELETE snippet
 @app.route('/snippet/<int:id>', methods={"DELETE"})
