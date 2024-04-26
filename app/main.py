@@ -49,7 +49,30 @@ def get_users():
 
     return jsonify({"users": json_user}), 200
 
-# GET a user with token
+# Log in a user (must add a body with credentials)
+@app.route('/login', methods=['GET'])
+def login_user():
+    data = request.json
+
+    # Getting the user based on body
+    user = User.query.filter(User.email == data['email']).first()
+    user = user.to_json()
+
+    # Verify password
+    password = data['password'].encode('utf-8')
+    hashed_password = user['password'].encode('utf-8')
+    valid_password = bcrypt.checkpw(password=password, hashed_password=user['password'].encode('utf-8'))
+
+    # Getting JWT token if valid password
+    if valid_password:
+        # setting payload with user and expiration 
+        payload = {"email": user['email'], "password": user['password'], "exp": datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(hours=24)}
+        jwt_token = jwt.encode(payload, env.get("JWT_SECRET"), algorithm="HS256")
+        return jsonify({'token': jwt_token })   
+    else:
+        return jsonify({"message": "User not Authorized!"})
+
+# GET a user with token (must add a header named token with token given at login)
 @app.route("/user", methods=["GET"])
 def get_user_with_token():
    try:
@@ -62,8 +85,6 @@ def get_user_with_token():
     return jsonify({"message": "Token has expired, please login again."})
        
     
-
-
 # GET by ID
 @app.route('/snippet/<int:id>', methods=["GET"])
 def get_snippet(id):
@@ -106,29 +127,6 @@ def create_user():
     db.session.add(new_user)
     db.session.commit()
     return jsonify({"message": "User created successfully"})
-
-# Log in a user
-@app.route('/login', methods=['POST'])
-def login_user():
-    data = request.json
-
-    # Getting the user based on body
-    user = User.query.filter(User.email == data['email']).first()
-    user = user.to_json()
-
-    # Verify password
-    password = data['password'].encode('utf-8')
-    hashed_password = user['password'].encode('utf-8')
-    valid_password = bcrypt.checkpw(password=password, hashed_password=user['password'].encode('utf-8'))
-
-    # Getting JWT token if valid password
-    if valid_password:
-        # setting payload with user and expiration 
-        payload = {"email": user['email'], "password": user['password'], "exp": datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(hours=24)}
-        jwt_token = jwt.encode(payload, env.get("JWT_SECRET"), algorithm="HS256")
-        return jsonify({'token': jwt_token })   
-    else:
-        return jsonify({"message": "User not Authorized!"})
 
 
 # DELETE snippet
