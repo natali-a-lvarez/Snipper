@@ -1,21 +1,35 @@
 # main routes/endpoints
-from flask import request, jsonify
+from flask import Flask, request, jsonify, redirect, render_template, session, url_for
 from config import app,db
 from models import Snippet, User
 from cryptography.fernet import Fernet
 from os import environ as env
-import bcrypt, jwt, datetime
 from dotenv import find_dotenv, load_dotenv
+from urllib.parse import quote_plus, urlencode
+from authlib.integrations.flask_client import OAuth
+import json
 
-# TODO make GET /user available by token provided to user with POST /login
+
 
 ENV_FILE = find_dotenv()
 if ENV_FILE:
     load_dotenv(ENV_FILE)
-    
-app.secret_key = env.get("FERNET_KEY")
 
-fern = Fernet(app.secret_key)
+app.secret_key = env.get("APP_SECRET_KEY")
+fern = Fernet(env.get("FERNET_KEY"))
+
+
+oauth = OAuth(app)
+
+oauth.register(
+    "auth0",
+    client_id=env.get("AUTH0_CLIENT_ID"),
+    client_secret=env.get("AUTH0_CLIENT_SECRET"),
+    client_kwargs={
+        "scope": "openid profile email",
+    },
+    server_metadata_url=f'https://{env.get("AUTH0_DOMAIN")}/.well-known/openid-configuration'
+)
 
 # decrypt a snippet of code
 def decryption(snippet):
@@ -23,12 +37,44 @@ def decryption(snippet):
     snippet['code'] = fern.decrypt(snippet['code']).decode()
     return snippet
 
-# validate a jwt token
-def validate_jwt(token):
-    decoded = jwt.decode(token, env.get("JWT_SECRET"), algorithms=["HS256"])
-    return decoded
+@app.route("/login")
+def login():
+    return oauth.auth0.authorize_redirect(
+        redirect_uri=url_for("callback", _external=True)
+    )
 
-#GET ALL SNIPPETS
+@app.route("/callback", methods=["GET", "POST"])
+def callback():
+    token = oauth.auth0.authorize_access_token()
+    session["user"] = token
+    return redirect("/")
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(
+        "https://" + env.get("AUTH0_DOMAIN")
+        + "/v2/logout?"
+        + urlencode(
+            {
+                "returnTo": url_for("home", _external=True),
+                "client_id": env.get("AUTH0_CLIENT_ID"),
+            },
+            quote_via=quote_plus,
+        )
+    )
+
+
+@app.route("/")
+def home():
+    snippets = Snippet.query.all()
+    # converting to json since it is an object and decrypting
+    json_snippets = list(map(decryption, snippets))
+
+    return render_template("home.html", session=session.get('user'), pretty=json.dumps(json_snippets))
+
+
+# #GET ALL SNIPPETS
 @app.route('/snippet', methods={"GET"})
 def get_snippets():
     snippets = Snippet.query.all()
@@ -38,52 +84,6 @@ def get_snippets():
 
     return jsonify({"snippets": json_snippets}), 200
 
-
-# GET ALL USERS(for testing purposes)
-@app.route('/users', methods=["GET"])
-def get_users():
-    users = User.query.all()
-    
-    # converting to json since it is an object
-    json_user = list(map(lambda x: x.to_json(), users))
-
-    return jsonify({"users": json_user}), 200
-
-# Log in a user (must add a body with credentials)
-@app.route('/login', methods=['GET'])
-def login_user():
-    data = request.json
-
-    # Getting the user based on body
-    user = User.query.filter(User.email == data['email']).first()
-    user = user.to_json()
-
-    # Verify password
-    password = data['password'].encode('utf-8')
-    hashed_password = user['password'].encode('utf-8')
-    valid_password = bcrypt.checkpw(password=password, hashed_password=user['password'].encode('utf-8'))
-
-    # Getting JWT token if valid password
-    if valid_password:
-        # setting payload with user and expiration 
-        payload = {"email": user['email'], "password": user['password'], "exp": datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(hours=24)}
-        jwt_token = jwt.encode(payload, env.get("JWT_SECRET"), algorithm="HS256")
-        return jsonify({'token': jwt_token })   
-    else:
-        return jsonify({"message": "User not Authorized!"})
-
-# GET a user with token (must add a header named token with token given at login)
-@app.route("/user", methods=["GET"])
-def get_user_with_token():
-   try:
-    # if token is still valid
-    token = request.headers['token']
-    validated_token = validate_jwt(token)
-    return jsonify({"user": validated_token})
-   except jwt.ExpiredSignatureError:
-    # if not valid
-    return jsonify({"message": "Token has expired, please login again."})
-       
     
 # GET by ID
 @app.route('/snippet/<int:id>', methods=["GET"])
@@ -111,23 +111,6 @@ def create_snippet():
     db.session.commit()
     return jsonify({"message": "Snippet created successfully"})
 
-# Create a USER
-@app.route('/user', methods=['POST'])
-def create_user():
-    data = request.json
-
-    # hash and salt password 
-    bytes = data['password'].encode('utf-8')
-    salt = bcrypt.gensalt()
-    hash = bcrypt.hashpw(bytes, salt)
-
-    new_user = User(email=data['email'], password=hash.decode('utf-8'))
-
-    # adding it to our model
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({"message": "User created successfully"})
-
 
 # DELETE snippet
 @app.route('/snippet/<int:id>', methods={"DELETE"})
@@ -141,21 +124,6 @@ def delete_snippet(id):
     db.session.commit()
     return jsonify({"message": "Snippet Deleted!"}), 200
 
-# DELETE User
-@app.route('/user/<int:id>', methods={"DELETE"})
-def delete_user(id):
-    user = User.query.get(id)
-
-    if not user:
-        return jsonify({"message": "User not found!"}), 404
-    
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({"message": "User Deleted!"}), 200
-
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=env.get("PORT", 3000))
