@@ -7,7 +7,6 @@ from os import environ as env
 import bcrypt, jwt, datetime
 from dotenv import find_dotenv, load_dotenv
 
-# TODO make GET /user available by token provided to user with POST /login
 
 ENV_FILE = find_dotenv()
 if ENV_FILE:
